@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Linq;
 
 namespace NeuralNetwork
 {
@@ -37,11 +33,13 @@ namespace NeuralNetwork
 
         public void CalculateValue()
         {
-            // Check input layer
-            if (_inputWeights == null)
-                return;
+            Value = 0;
+            foreach (var val in _inputWeights)
+            {
+                Value += val.GetValue();
+            }
 
-            Value = _inputWeights.Select(x => x.GetValue()).Sum().Normalize();
+            Value = Value.Normalize();
         }
 
         public void CaclSigma(double idealValue)
@@ -53,7 +51,11 @@ namespace NeuralNetwork
         public void CaclSigma()
         {
             // input and hidden layers
-            Sigma = Helper.NormalizeD(Value) * OutputWeights.Select(x => x.GetSigma()).Sum();
+            Sigma = 0;
+            foreach (var weight in OutputWeights)
+                Sigma += weight.GetSigma();
+
+            Sigma *= Helper.NormalizeD(Value);
         }
 
         public void UpdateWeights(double e, double a)

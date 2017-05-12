@@ -1,7 +1,5 @@
 ﻿using System;
-using System.Collections.Generic;
 using System.Linq;
-using System.Text;
 using System.Threading.Tasks;
 
 namespace NeuralNetwork
@@ -10,9 +8,22 @@ namespace NeuralNetwork
     {
         Neuron[] Neurons { get; }
 
+        private int _procCount;
+
+        private int[] _leftBorders;
+        private int[] _rightBorders;
+
+        public Action CalculateValues { get; private set; }
+
+        public Action<double, double> UpdateWeights { get; private set; }
+
+        public Action<double[]> SetValues { get; private set; }
+
         public Layer(int neuronCount)
         {
             Neurons = Enumerable.Range(0, neuronCount).Select(x => new Neuron()).ToArray();
+
+            InitPortions();
         }
 
         public Layer(int neuronCount, Layer nextLayer)
@@ -26,18 +37,58 @@ namespace NeuralNetwork
                 var weights = allWeights.Where(x => x.RightNeuron.Equals(neuron)).ToArray();
                 neuron.SetInputWeights(weights);
             }
+
+            InitPortions();
         }
 
-        public void SetValues(int[] values)
+        private void InitPortions()
+        {
+            _procCount = Environment.ProcessorCount;
+            if (Neurons.Length <= _procCount)
+            {
+                CalculateValues = CalculateValuesSmall;
+                UpdateWeights = UpdateWeightsSmall;
+                SetValues = SetValuesSmall;
+            }
+            else
+            {
+                _leftBorders = new int[_procCount];
+                _rightBorders = new int[_procCount];
+
+                int portion = Neurons.Length / _procCount;
+                for (int i = 0; i < _procCount; i++)
+                {
+                    _leftBorders[i] = portion * i;
+                    _rightBorders[i] = Math.Min(portion * (i + 1), Neurons.Length);
+                }
+
+                CalculateValues = CalculateValuesBig;
+                UpdateWeights = UpdateWeightsBig;
+                SetValues = SetValuesBig;
+            }            
+        }
+
+        public void SetValuesSmall(double[] values)
         {
             // todo only input layer
-            if (values == null || values.Length != Neurons.Length)
-                throw new ArgumentException("values == null || values.Length != Neurons.Length");
 
-            for (int i = 0; i < Neurons.Length; i++)
+            Parallel.For(0, Neurons.Length, i =>
             {
                 Neurons[i].SetValue(values[i]);
-            }
+            });
+        }
+
+        public void SetValuesBig(double[] values)
+        {
+            // todo only input layer
+
+            Parallel.For(0, _procCount, i =>
+            {
+                for (int j = _leftBorders[i]; j < _rightBorders[i]; j++)
+                {
+                    Neurons[j].SetValue(values[j]);
+                }
+            });
         }
 
         public double[] GetValues()
@@ -46,13 +97,25 @@ namespace NeuralNetwork
             return Neurons.Select(x => x.Value).ToArray();
         }
 
-        public void CalculateValues()
+        private void CalculateValuesSmall()
         {
-            foreach (Neuron neuron in Neurons)
+            Parallel.ForEach(Neurons, neuron => {
                 neuron.CalculateValue();
+            });
         }
 
-        public double GetMse(double[] idealValues)
+        private void CalculateValuesBig()
+        {
+            Parallel.For(0, _procCount, i =>
+            {
+                for (int j = _leftBorders[i]; j < _rightBorders[i]; j++)
+                {
+                    Neurons[j].CalculateValue();
+                }
+            });
+        }
+
+        public double GetMse(int[] idealValues)
         {
             // todo only output layer
             if (idealValues == null || idealValues.Length != Neurons.Length)
@@ -67,34 +130,36 @@ namespace NeuralNetwork
             return result / idealValues.Length;
         }
 
-        public void CalcSigma(double[] idealValues)
+        public void CalcSigma(int[] idealValues)
         {
             // todo only output layer
             if (idealValues == null || idealValues.Length != Neurons.Length)
                 throw new ArgumentException("idealValues == null || idealValues.Length != Neurons.Length");
 
-            for (int i = 0; i < idealValues.Length; i++)
+            Parallel.For(0, idealValues.Length, i =>
             {
                 Neurons[i].CaclSigma(idealValues[i]);
-            }
+            });
         }
 
-        public void CalcSigma()
+        private void UpdateWeightsSmall(double e, double a)
         {
-            // input and hidden layers
-            foreach (var neuron in Neurons)
-            {
+            Parallel.ForEach(Neurons, neuron => {
                 neuron.CaclSigma();
-            }
+                neuron.UpdateWeights(e, a);
+            });
         }
 
-        public void UpdateWeights(double e, double a)
+        private void UpdateWeightsBig(double e, double a)
         {
-            // input and hidden layers
-            foreach (var neuron in Neurons)
+            Parallel.For(0, _procCount, i =>
             {
-                neuron.UpdateWeights(e, a);
-            }
+                for (int j = _leftBorders[i]; j < _rightBorders[i]; j++)
+                {
+                    Neurons[j].CaclSigma();
+                    Neurons[j].UpdateWeights(e, a);
+                }
+            });
         }
     }
 }
